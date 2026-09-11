@@ -3,5 +3,9 @@
 release: R1
 description: "Release 1 — First wave set of APIs"
 services:
-  - Configuration-Cache-Demo.bundle
-  - sampleTest.bundle
+  - name: "findFid.xml"
+    artifact: ""
+    target_folder: "HRT-API-TEST"
+  - name: "generateFid.xml"
+    artifact: ""
+    target_folder: "HRT-API-TEST"
