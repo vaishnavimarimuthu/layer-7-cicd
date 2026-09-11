@@ -1,0 +1,6 @@
+# Release R2 manifest — first migration release (Jan 2027).
+# APIs: TBD.
+release: R2
+description: "Release 2 — Second wave set of API Policies"
+services:
+  - vigneshTest.bundle

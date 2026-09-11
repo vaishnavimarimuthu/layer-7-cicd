@@ -1,0 +1,4 @@
+gateway:
+  host: srh00135.ute.fedex.com
+  port: 8443
+  protocol: https
