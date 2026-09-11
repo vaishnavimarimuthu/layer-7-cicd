@@ -4,8 +4,8 @@ release: R1
 description: "Release 1 — First wave set of APIs"
 services:
   - name: "findFid.xml"
-    artifact: ""
+    artifact: "bundles/HRT-API-TEST/New Hire Service/NHS Endpoints/findFid.xml"
     target_folder: "HRT-API-TEST"
   - name: "generateFid.xml"
-    artifact: ""
+    artifact: "bundles/HRT-API-TEST/New Hire Service/NHS Endpoints/generateFid.xml"
     target_folder: "HRT-API-TEST"
