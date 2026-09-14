@@ -14,7 +14,7 @@ pipeline {
         string(
             name: 'APP_FILTER',
             defaultValue: '',
-            description: 'Optional: comma/space-separated app names to limit within the release (e.g. "Configuration-Cache-Demo.bundle,sampleTest.bundle"). Blank = all apps in the release.'
+            description: 'Optional: comma/space-separated app names to limit within the release (e.g. "findFid.xml,generateFid.xml"). Blank = all apps in the release.'
         )
     }
     environment {
@@ -47,7 +47,6 @@ pipeline {
                     if (releaseInput == 'ALL') {
                         releasesToRun = ['R1', 'R2', 'R3', 'R4'].findAll { fileExists("releases/${it}/manifest.yaml") }
                     } else {
-                        // Splits by commas or spaces, trims whitespace, and ensures manifest exists
                         releasesToRun = releaseInput.split('[,\\s]+')
                                             .collect { it.trim() }
                                             .findAll { it && fileExists("releases/${it}/manifest.yaml") }
@@ -59,7 +58,7 @@ pipeline {
                         : []
  
                     // ── Map tracking database generation ────────────────────────
-                    // Tracks releases to their bundles list: ['R1': ['Configuration-Cache-Demo.bundle']]
+                    // Tracks releases to their service objects list
                     logReleaseApiMap = [:] 
                     releasesToRun.each { release ->
                         def manifestPath = "releases/${release}/manifest.yaml"
@@ -67,21 +66,39 @@ pipeline {
                             error "Release ${release}: manifest not found at ${manifestPath}"
                         }
                         def manifest = readYaml file: manifestPath
-                        // Parse the services array from your manifest layout
-                        def apps = (manifest.services ?: []).collect { it.toString() }
+                        
+                        // Parse complex service maps from manifest layout
+                        def rawServices = manifest.services ?: []
+                        def processedServices = []
+
+                        rawServices.each { svc ->
+                            def svcName = svc.name?.toString()
+                            def svcArtifact = svc.artifact?.toString()
+                            def svcTargetFolder = svc.target_folder?.toString()
+
+                            if (svcName && svcArtifact && svcTargetFolder) {
+                                processedServices.add([
+                                    name: svcName,
+                                    artifact: svcArtifact,
+                                    targetFolder: svcTargetFolder
+                                ])
+                            }
+                        }
  
-                        // If user defined an APP_FILTER, restrict the execution pool
+                        // If user defined an APP_FILTER, restrict the execution pool based on the name key
                         if (appFilter) {
                             def filterLower = appFilter.collect { it.toLowerCase() }
-                            apps = apps.findAll { filterLower.contains(it.toLowerCase()) }
-                            echo "Release ${release}: filtered to [${apps.join(', ')}]"
+                            processedServices = processedServices.findAll { filterLower.contains(it.name.toLowerCase()) }
+                            echo "Release ${release}: filtered to [${processedServices.collect { it.name }.join(', ')}]"
                         }
-                       if (apps.isEmpty()) {
+
+                        if (processedServices.isEmpty()) {
                             error "No valid bundles found to process for Release ${release} with current APP_FILTER."
                         }
  
-                        logReleaseApiMap[release] = apps
-                        echo "Final apps to process for Release ${release}: [${apps.join(', ')}]"
+                        logReleaseApiMap[release] = processedServices
+                        def displayedNames = processedServices.collect { it.name }
+                        echo "Final apps to process for Release ${release}: [${displayedNames.join(', ')}]"
                     }
                 }
             }
@@ -89,14 +106,12 @@ pipeline {
         stage('Validate Bundles') {
             steps {
                 script {
-                    logReleaseApiMap.each { release, apps ->
-                        apps.each { app ->
-                            // ADJUSTED: Looking for bundles in the root bundles/ directory
-                            String currentBundlePath = "bundles/${app}"
-                            if (!fileExists(currentBundlePath)) {
-                                error "Bundle file not found in workspace: ${currentBundlePath}"
+                    logReleaseApiMap.each { release, services ->
+                        services.each { svc ->
+                            if (!fileExists(svc.artifact)) {
+                                error "Bundle file not found in workspace: ${svc.artifact}"
                             }
-                            echo "Validated physical bundle existence: ${currentBundlePath}"
+                            echo "Validated physical bundle existence: ${svc.artifact}"
                         }
                     }
                 }
@@ -126,12 +141,11 @@ pipeline {
                     )
                 ]) {
                     script {
-                        logReleaseApiMap.each { release, apps ->
-                            apps.each { app ->
-                                // ADJUSTED: Pointing to bundles/ folder
-                                String currentBundlePath = "bundles/${app}"
+                        logReleaseApiMap.each { release, services ->
+                            services.each { svc ->
                                 echo "========================================"
-                                echo "Testing connectivity using bundle: ${currentBundlePath}"
+                                echo "Testing connectivity using bundle: ${svc.artifact}"
+                                echo "Targeting Gateway Folder: ${svc.targetFolder}"
                                 echo "========================================"
                                 bat """
                                     set "PATH=%JAVA_HOME%\\bin;%PATH%"
@@ -140,9 +154,10 @@ pipeline {
                                         -p "%GATEWAY_PORT%" ^
                                         -u "%GATEWAY_USERNAME%" ^
                                         --plaintextPassword "%GATEWAY_PASSWORD%" ^
-                                        --bundle "${currentBundlePath}" ^
+                                        --bundle "${svc.artifact}" ^
                                         --plaintextEncryptionPassphrase "%GATEWAY_PASSWORD%" ^
-                                        --results "results-${app}.xml" ^
+                                        --destFolder "${svc.targetFolder}" ^
+                                        --results "results-${svc.name}" ^
                                         --trustCertificate ^
                                         --trustHostname ^
                                         --test
@@ -163,70 +178,55 @@ pipeline {
                     )
                 ]) {
                     script {
-                        logReleaseApiMap.each { release, apps ->
-                            apps.each { app ->
-                                // ADJUSTED: Pointing to bundles/ folder
-                                String currentBundlePath = "bundles/${app}"
-                                echo "Deploying bundle: ${currentBundlePath} to Layer7 Gateway..."
+                        logReleaseApiMap.each { release, services ->
+                            services.each { svc ->
+                                echo "Deploying bundle: ${svc.artifact} to folder ${svc.targetFolder} on Layer7 Gateway..."
                                 int exitCode = bat(
                                     returnStatus: true,
                                     script: """
-                                        @echo off
-                                        call "%GMU_HOME%\\GatewayMigrationUtility.bat" ^
-                                            migrateIn ^
-                                            --host %GATEWAY_HOST% ^
-                                            --port %GATEWAY_PORT% ^
-                                            --username "%GATEWAY_USERNAME%" ^
+                                        set "PATH=%JAVA_HOME%\\bin;%PATH%"
+                                        "%GMU_HOME%\\GatewayMigrationUtility.bat" migrateIn ^
+                                            -h "%GATEWAY_HOST%" ^
+                                            -p "%GATEWAY_PORT%" ^
+                                            -u "%GATEWAY_USERNAME%" ^
                                             --plaintextPassword "%GATEWAY_PASSWORD%" ^
-                                            --bundle "${currentBundlePath}" ^
+                                            --bundle "${svc.artifact}" ^
                                             --plaintextEncryptionPassphrase "%GATEWAY_PASSWORD%" ^
-                                            --results "gmu-results-${app}.xml" ^
+                                            --destFolder "${svc.targetFolder}" ^
+                                            --results "results-${svc.name}" ^
                                             --trustCertificate ^
                                             --trustHostname
                                     """
                                 )
                                 if (exitCode != 0) {
-                                    error "Deployment failed for bundle ${app} with error code ${exitCode}."
-                                }
-                                echo "Successfully deployed: ${app}"
+                                    error "Deployment failed for bundle ${svc.name} with error code ${exitCode}."
+									}
+								echo "Successfully deployed: ${svc.name}"
                             }
                         }
                     }
                 }
             }
         }
-        stage('Deployment Verification') {
+		stage('Deployment Verification') {
             steps {
                 echo "All specified GMU deployments completed successfully."
             }
         }
     }
-    post {
+	post {
         success {
             script {
-                echo """
-                ==========================================
-                Layer7 Deployment SUCCESS
-                Environment : ${params.ENVIRONMENT}
-                Processed Deployments:
-                """
-                logReleaseApiMap.each { release, apps ->
-                    echo "Release ${release}: ${apps.join(', ')}"
-                }
-                echo "=========================================="
+                echo """==========================================Layer7 Deployment SUCCESSEnvironment : ${params.ENVIRONMENT}Processed Deployments:"""logReleaseApiMap.each {
+                    release, services ->  def displayedNames = services.collect {
+                        it.name
+                    }echo "Release ${release}: ${displayedNames.join(', ')}"
+                }echo "=========================================="
             }
+        }failure {
+            echo """==========================================Layer7 Deployment FAILEDEnvironment : ${params.ENVIRONMENT}=========================================="""
+        }always {
+            archiveArtifacts artifacts: 'results-*.xml', allowEmptyArchive: truecleanWs()
         }
-        failure {
-            echo """
-            ==========================================
-            Layer7 Deployment FAILED
-            Environment : ${params.ENVIRONMENT}
-            ==========================================
-            """
-        }
-        always {
-        archiveArtifacts artifacts: 'results-*.xml, gmu-results-*.xml', allowEmptyArchive: true
-        cleanWs()
-    }
     }
 }
