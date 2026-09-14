@@ -217,16 +217,29 @@ pipeline {
 	post {
         success {
             script {
-                echo """==========================================Layer7 Deployment SUCCESSEnvironment : ${params.ENVIRONMENT}Processed Deployments:"""logReleaseApiMap.each {
-                    release, services ->  def displayedNames = services.collect {
-                        it.name
-                    }echo "Release ${release}: ${displayedNames.join(', ')}"
-                }echo "=========================================="
+                echo """
+                ==========================================
+                Layer7 Deployment SUCCESS
+                Environment : ${params.ENVIRONMENT}
+                Processed Deployments:
+                """
+                logReleaseApiMap.each { release, apps ->
+                    echo "Release ${release}: ${apps.join(', ')}"
+                }
+                echo "=========================================="
             }
-        }failure {
-            echo """==========================================Layer7 Deployment FAILEDEnvironment : ${params.ENVIRONMENT}=========================================="""
-        }always {
-            archiveArtifacts artifacts: 'results-*.xml', allowEmptyArchive: truecleanWs()
         }
+        failure {
+            echo """
+            ==========================================
+            Layer7 Deployment FAILED
+            Environment : ${params.ENVIRONMENT}
+            ==========================================
+            """
+        }
+        always {
+        archiveArtifacts artifacts: 'results-*.xml, gmu-results-*.xml', allowEmptyArchive: true
+        cleanWs()
+    }
     }
 }
