@@ -1,6 +1,8 @@
-# Release R2 manifest — first migration release (Jan 2027).
+# Release R2 manifest — Second migration release (Jan 2027 – Feb 2027).
 # APIs: TBD.
 release: R2
-description: "Release 2 — Second wave set of API Policies"
+description: "Release 2 — First wave set of APIs"
 services:
-  - vigneshTest.bundle
+  - name: "ping.xml"
+    artifact: "bundles/HRT-API-TEST/New Hire Service/NHS Endpoints/ping.xml"
+    target_folder: "/TEST-API/New Hire Service/NHS Endpoints"
