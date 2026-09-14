@@ -9,6 +9,3 @@ services:
   - name: "generateFid.xml"
     artifact: "bundles/HRT-API-TEST/New Hire Service/NHS Endpoints/generateFid.xml"
     target_folder: "/TEST-API/New Hire Service/NHS Endpoints"
-  - name: "ping.xml"
-    artifact: "bundles/HRT-API-TEST/New Hire Service/NHS Endpoints/ping.xml"
-    target_folder: "/TEST-API/New Hire Service/NHS Endpoints"
